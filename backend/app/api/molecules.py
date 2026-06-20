@@ -26,6 +26,25 @@ MOLECULES = [
     {"id": 20, "name": "卡托普利", "smiles": "CCC(C)C(C(=O)O)NC(=O)CCS", "formula": "C9H15NO3S", "mw": 217.29, "logP": -0.5, "category": "心血管"}
 ]
 
+def compute_risk_score(mw, log_p, admet):
+    score = 0
+    score += admet['violations'] * 20
+    score += 30 if '高' in admet['toxicity'] else 15 if '中' in admet['toxicity'] else 0
+    score += 25 if admet['metabolicStability'] == '不稳定' else 10 if admet['metabolicStability'] == '中等' else 0
+    score += 20 if admet['bioavailability'] < 30 else 10 if admet['bioavailability'] < 50 else 0
+    return min(100, score)
+
+def get_risk_level(score):
+    if score >= 50: return '高风险'
+    if score >= 25: return '中风险'
+    return '低风险'
+
+def get_priority(score, admet):
+    if score >= 70 or admet['violations'] >= 2: return '紧急'
+    if score >= 50: return '高'
+    if score >= 25: return '中'
+    return '低'
+
 @router.get("/")
 def list_molecules():
     return MOLECULES
@@ -49,3 +68,58 @@ def get_admet(mol_id: int):
 def parse_smiles_endpoint(smiles: str):
     atoms, bonds = parse_smiles(smiles)
     return {"atoms": atoms, "bonds": bonds}
+
+@router.get("/dashboard/stats")
+def get_dashboard_stats():
+    enriched_molecules = []
+    for mol in MOLECULES:
+        admet = compute_admet(mol["mw"], mol["logP"], mol["formula"])
+        risk_score = compute_risk_score(mol["mw"], mol["logP"], admet)
+        risk_level = get_risk_level(risk_score)
+        priority = get_priority(risk_score, admet)
+        enriched_molecules.append({
+            **mol,
+            "admet": admet,
+            "riskScore": risk_score,
+            "riskLevel": risk_level,
+            "priority": priority
+        })
+
+    total_molecules = len(enriched_molecules)
+    categories_set = set(m["category"] for m in enriched_molecules)
+    total_categories = len(categories_set)
+
+    high_risk_count = sum(1 for m in enriched_molecules if m["riskLevel"] == "高风险")
+    medium_risk_count = sum(1 for m in enriched_molecules if m["riskLevel"] == "中风险")
+    low_risk_count = sum(1 for m in enriched_molecules if m["riskLevel"] == "低风险")
+
+    urgent_count = sum(1 for m in enriched_molecules if m["priority"] == "紧急")
+    high_priority_count = sum(1 for m in enriched_molecules if m["priority"] == "高")
+
+    categories = []
+    for cat in sorted(categories_set):
+        cat_mols = [m for m in enriched_molecules if m["category"] == cat]
+        categories.append({
+            "category": cat,
+            "count": len(cat_mols),
+            "highRisk": sum(1 for m in cat_mols if m["riskLevel"] == "高风险"),
+            "mediumRisk": sum(1 for m in cat_mols if m["riskLevel"] == "中风险"),
+            "lowRisk": sum(1 for m in cat_mols if m["riskLevel"] == "低风险"),
+            "molecules": cat_mols
+        })
+
+    priority_queue_mols = [m for m in enriched_molecules if m["priority"] in ("紧急", "高")]
+    priority_order = {"紧急": 0, "高": 1}
+    priority_queue_mols.sort(key=lambda m: (priority_order[m["priority"]], -m["riskScore"]))
+
+    return {
+        "totalMolecules": total_molecules,
+        "totalCategories": total_categories,
+        "highRiskCount": high_risk_count,
+        "mediumRiskCount": medium_risk_count,
+        "lowRiskCount": low_risk_count,
+        "urgentCount": urgent_count,
+        "highPriorityCount": high_priority_count,
+        "categories": categories,
+        "priorityQueue": priority_queue_mols
+    }

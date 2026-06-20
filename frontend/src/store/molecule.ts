@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { MoleculeData, ADMETProps } from '../types'
+import type { MoleculeData, ADMETProps, MoleculeWithRisk, DashboardStats, RiskLevel, PriorityLevel, CategorySummary } from '../types'
 
 const ATOM_COLORS: Record<string, string> = {
   C: '#6b7280', N: '#3b82f6', O: '#ef4444', S: '#eab308',
@@ -97,6 +97,38 @@ export function computeADMET(mol: { mw: number; logP: number; formula: string })
   }
 }
 
+export function computeRiskScore(admet: ADMETProps): number {
+  let score = 0
+  score += admet.violations * 20
+  if (admet.toxicity.includes('高')) score += 30
+  else if (admet.toxicity.includes('中')) score += 15
+  if (admet.metabolicStability === '不稳定') score += 25
+  else if (admet.metabolicStability === '中等') score += 10
+  if (admet.bioavailability < 30) score += 20
+  else if (admet.bioavailability < 50) score += 10
+  return Math.min(100, score)
+}
+
+export function getRiskLevel(score: number): RiskLevel {
+  if (score >= 50) return '高风险'
+  if (score >= 25) return '中风险'
+  return '低风险'
+}
+
+export function getPriority(score: number, violations: number): PriorityLevel {
+  if (score >= 70 || violations >= 2) return '紧急'
+  if (score >= 50) return '高'
+  if (score >= 25) return '中'
+  return '低'
+}
+
+const priorityWeight: Record<PriorityLevel, number> = {
+  '紧急': 4,
+  '高': 3,
+  '中': 2,
+  '低': 1
+}
+
 export const useMoleculeStore = defineStore('molecule', () => {
   const molecules = ref<MoleculeData[]>([])
   const currentMolecule = ref<MoleculeData | null>(null)
@@ -104,11 +136,71 @@ export const useMoleculeStore = defineStore('molecule', () => {
   const searchQuery = ref('')
   const searchResults = ref<MoleculeData[]>([])
   const isLoading = ref(false)
+  const showDashboard = ref(true)
 
   const filteredMolecules = computed(() => {
     if (!searchQuery.value) return molecules.value
     const q = searchQuery.value.toLowerCase()
     return molecules.value.filter(m => m.name.toLowerCase().includes(q) || m.category.toLowerCase().includes(q) || m.smiles.toLowerCase().includes(q))
+  })
+
+  const moleculesWithRisk = computed<MoleculeWithRisk[]>(() => {
+    return molecules.value.map(mol => {
+      const molAdmet = computeADMET({ mw: mol.mw, logP: mol.logP, formula: mol.formula })
+      const riskScore = computeRiskScore(molAdmet)
+      return {
+        ...mol,
+        admet: molAdmet,
+        riskScore,
+        riskLevel: getRiskLevel(riskScore),
+        priority: getPriority(riskScore, molAdmet.violations)
+      }
+    })
+  })
+
+  const dashboardStats = computed<DashboardStats>(() => {
+    const mols = moleculesWithRisk.value
+    const categoryMap = new Map<string, MoleculeWithRisk[]>()
+
+    mols.forEach(mol => {
+      if (!categoryMap.has(mol.category)) {
+        categoryMap.set(mol.category, [])
+      }
+      categoryMap.get(mol.category)!.push(mol)
+    })
+
+    const categories: CategorySummary[] = []
+    categoryMap.forEach((catMols, category) => {
+      const sorted = [...catMols].sort((a, b) => b.riskScore - a.riskScore)
+      categories.push({
+        category,
+        count: catMols.length,
+        highRisk: catMols.filter(m => m.riskLevel === '高风险').length,
+        mediumRisk: catMols.filter(m => m.riskLevel === '中风险').length,
+        lowRisk: catMols.filter(m => m.riskLevel === '低风险').length,
+        molecules: sorted
+      })
+    })
+
+    const priorityQueue = mols
+      .filter(m => m.priority === '紧急' || m.priority === '高')
+      .sort((a, b) => {
+        const pw = priorityWeight[b.priority] - priorityWeight[a.priority]
+        if (pw !== 0) return pw
+        return b.riskScore - a.riskScore
+      })
+
+    return {
+      totalMolecules: mols.length,
+      totalCategories: categories.length,
+      highRiskCount: mols.filter(m => m.riskLevel === '高风险').length,
+      mediumRiskCount: mols.filter(m => m.riskLevel === '中风险').length,
+      lowRiskCount: mols.filter(m => m.riskLevel === '低风险').length,
+      urgentCount: mols.filter(m => m.priority === '紧急').length,
+      highPriorityCount: mols.filter(m => m.priority === '高').length,
+      categories,
+      priorityQueue
+    }
   })
 
   function loadMolecules() {
@@ -147,9 +239,14 @@ export const useMoleculeStore = defineStore('molecule', () => {
       .slice(0, 5)
   })
 
+  function toggleDashboard() {
+    showDashboard.value = !showDashboard.value
+  }
+
   return {
     molecules, currentMolecule, admet, searchQuery, searchResults, isLoading,
+    showDashboard, moleculesWithRisk, dashboardStats,
     filteredMolecules, similarMolecules,
-    loadMolecules, selectMolecule, searchMolecules
+    loadMolecules, selectMolecule, searchMolecules, toggleDashboard
   }
 })
