@@ -1,1 +1,2 @@
-export interface Atom
+export interface Atom3D {
+  element:

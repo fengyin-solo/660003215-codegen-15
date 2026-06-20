@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-slate-800 rounded-lg p-4 border border-slate-700 space-y-4">
+  <div v-if="stats" class="bg-slate-800 rounded-lg p-4 border border-slate-700 space-y-4">
     <h3 class="text-lg font-bold text-cyan-400">药物研究风险看板</h3>
 
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -17,7 +17,7 @@
       </div>
       <div class="bg-slate-900 rounded-lg p-3 border border-slate-700">
         <div class="text-xs text-slate-500">紧急/高优先级</div>
-        <div class="text-2xl font-bold text-orange-400">{{ stats.urgentCount + stats.highPriorityCount }}</div>
+        <div class="text-2xl font-bold text-orange-400">{{ (stats?.urgentCount ?? 0) + (stats?.highPriorityCount ?? 0) }}</div>
       </div>
     </div>
 

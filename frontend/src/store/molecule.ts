@@ -160,6 +160,14 @@ export const useMoleculeStore = defineStore('molecule', () => {
 
   const dashboardStats = computed<DashboardStats>(() => {
     const mols = moleculesWithRisk.value
+
+    if (mols.length === 0) {
+      return {
+        totalMolecules: 0, totalCategories: 0, highRiskCount: 0, mediumRiskCount: 0, lowRiskCount: 0,
+        urgentCount: 0, highPriorityCount: 0, categories: [], priorityQueue: []
+      }
+    }
+
     const categoryMap = new Map<string, MoleculeWithRisk[]>()
 
     mols.forEach(mol => {

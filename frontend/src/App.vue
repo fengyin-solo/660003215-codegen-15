@@ -16,7 +16,7 @@
       <ResearchDashboard />
     </div>
 
-    <div v-show="!store.showDashboard || store.showDashboard" class="flex flex-col lg:flex-row gap-4 p-4">
+    <div class="flex flex-col lg:flex-row gap-4 p-4">
       <div class="lg:w-1/4 space-y-4">
         <MoleculeSearch />
       </div>
